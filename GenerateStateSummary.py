@@ -1,7 +1,7 @@
 """ GenerateStateSummary.py
 
 This script takes about 20 min to run on a laptop, but generates a PDF of model 
-outputs by state, calling VisualizeInputs.py, TranssmissionModel.py, OutOfSampleTest.py, 
+outputs by state, calling VisualizeInputs.py, TransmissionModel.py, OutOfSampleTest.py, 
 and SIAImpactPosteriors.py as subprocesses, then compiling the serialized results. 
 
 It also compiles SIA posterior distributions into a serialized dataset for analysis."""

@@ -20,8 +20,26 @@ class NeighborhoodPosterior(object):
     create regularizing inputs for the state level. See the discussion around Appendix 2,
     equations 3 and 4. 
 
-    This object encapsulates methods to evaluate the heirachical posterior distribution in
-    different ways and its gradient to facilitate model fitting. """
+    This object encapsulates methods to evaluate the hierarchical posterior distribution in
+    different ways and its gradient to facilitate model fitting.
+
+    Typical use is through fit_the_neighborhood_model(...) below, which builds this object and
+    optimizes S0 and the SIA effects, mu.
+
+    Args:
+        df (pandas.DataFrame): Model inputs on a regular time index, e.g. from prep_model_inputs(...).
+            Needs the columns "cases", "adj_births" (births not immunized by routine
+            immunization) and "adj_cases_p" (reporting-adjusted cases).
+        sia_effects (pandas.DataFrame): Doses delivered, with one column per SIA and the same time
+            index as df, e.g. from prep_sia_effects(...).
+        S0 (float): Prior mean for the initial number of susceptibles.
+        S0_var (float): Prior variance of S0, on the natural scale.
+        beta_corr (float): Scale of the periodic second-difference penalty that smooths the
+            seasonal transmission profile. Larger values smooth more.
+        tau (int): Number of time steps in one seasonal cycle.
+        mu_guess (float): Starting value for mu, the fraction of SIA doses that seroconvert a
+            susceptible person.
+    """
 
     def __init__(self,df,sia_effects,S0,S0_var,beta_corr=3.,tau=26,mu_guess=0.1):
 
@@ -68,6 +86,9 @@ class NeighborhoodPosterior(object):
 
     def compartment_df(self):
 
+        ''' Return a DataFrame with columns E_t, I_t and S_t (exposed, infectious and susceptible
+        counts) at the current parameter values (self.logS0 and self.mu). '''
+
         ## Compute key quantities related to the populations
         ## in the different model compartments. In this formulation
         ## E_t (exposed) is simply I_t (infectious) shifted by one
@@ -87,7 +108,14 @@ class NeighborhoodPosterior(object):
         
     def fixed_rt(self,theta):
 
-        ''' Evaluate the posterior on iterations where adj_cases is fixed. '''
+        ''' Evaluate the negative log posterior on iterations where adj_cases is fixed.
+
+        Args:
+            theta (numpy.ndarray): Parameters, [log(S0), mu[0], ..., mu[num_sias-1]].
+
+        Returns:
+            float: The negative log posterior (up to a constant), to be minimized.
+        '''
 
         ## Unpack the input array.
         S0 = np.exp(theta[0])
@@ -113,6 +141,8 @@ class NeighborhoodPosterior(object):
         return lnp_beta + lnp_S0
 
     def fixed_rt_grad(self,theta):
+
+        ''' Gradient of fixed_rt(theta) with respect to theta. '''
 
         ## Unpack the input array.
         S0 = np.exp(theta[0])
@@ -149,7 +179,9 @@ class NeighborhoodPosterior(object):
 
     def fixed_rt_hessian(self,theta):
 
-        ## Unpack the S0-mu point of interest 
+        ''' Hessian of fixed_rt(theta) with respect to theta. '''
+
+        ## Unpack the S0-mu point of interest
         S0 = np.exp(theta[0])
         mu = theta[1:]
 
@@ -204,8 +236,28 @@ class HoodRegularizedModel(object):
     paper), which takes the regularizing model output above as input. See the discussion around 
     appendix 2, equations 1 and 2 and equation 6. 
 
-    This object encapsulates methods to evaluate the heirachical posterior distribution in
-    different ways and its gradient to facilitate model fitting. """
+    This object encapsulates methods to evaluate the hierarchical posterior distribution in
+    different ways and its gradient to facilitate model fitting.
+
+    Typical use is through fit_the_regularized_model(...) below, which builds this object and
+    runs the staged optimization.
+
+    Args:
+        df (pandas.DataFrame): Model inputs on a regular time index, e.g. from prep_model_inputs(...).
+            Needs the columns "cases", "adj_births", "rr_p" and "rr_p_var" (prior reporting
+            rate and its variance).
+        sia_effects (pandas.DataFrame): Doses delivered, with one column per SIA and the same time
+            index as df, e.g. from prep_sia_effects(...).
+        S0 (float): Prior mean for the initial number of susceptibles.
+        S0_var (float): Prior variance of S0, on the natural scale.
+        hood_t (pandas.DataFrame): Fitted neighborhood compartments (columns "E_t", "I_t", "S_t"),
+            e.g. from NeighborhoodPosterior.compartment_df(). Must share df's time index.
+        beta_corr (float): Scale of the periodic second-difference penalty that smooths the
+            seasonal transmission profile. Larger values smooth more.
+        tau (int): Number of time steps in one seasonal cycle.
+        mu_guess (float): Starting value for mu, the SIA efficacy (the fraction of doses that
+            seroconvert a susceptible person).
+    """
 
     def __init__(self,df,sia_effects,S0,S0_var,hood_t,beta_corr=3.,tau=26,mu_guess=0.1):
 
@@ -274,7 +326,15 @@ class HoodRegularizedModel(object):
 
     def fixed_mu(self,theta):
 
-        ''' Evaluate the posterior on iterations where SIA impact, mu, is fixed. '''
+        ''' Evaluate the negative log posterior on iterations where SIA impact, mu, is fixed.
+
+        Args:
+            theta (numpy.ndarray): Parameters, [log(S0), r_t[0], ..., r_t[T]], where r_t is the
+                reporting rate at each time step.
+
+        Returns:
+            float: The negative log posterior (up to a constant), to be minimized.
+        '''
 
         ## Unpack the input
         S0 = np.exp(theta[0])
@@ -305,6 +365,8 @@ class HoodRegularizedModel(object):
         return lnp_beta + lnp_rt + lnp_S0
 
     def fixed_mu_grad(self,theta):
+
+        ''' Gradient of fixed_mu(theta) with respect to theta. '''
 
         ## Unpack the input
         S0 = np.exp(theta[0])
@@ -350,9 +412,17 @@ class HoodRegularizedModel(object):
 
     def fixed_rt(self,theta):
 
-        ''' Evaluate the posterior on iterations where adj_cases is fixed. '''
+        ''' Evaluate the negative log posterior on iterations where adj_cases (i.e. the reporting
+        rate, r_hat) is fixed.
 
-        ## Unpack 
+        Args:
+            theta (numpy.ndarray): Parameters, [log(S0), mu[0], ..., mu[num_sias-1]].
+
+        Returns:
+            float: The negative log posterior (up to a constant), to be minimized.
+        '''
+
+        ## Unpack
         S0 = np.exp(theta[0])
         mu = theta[1:]
 
@@ -380,7 +450,9 @@ class HoodRegularizedModel(object):
 
     def fixed_rt_grad(self,theta):
 
-        ## Unpack 
+        ''' Gradient of fixed_rt(theta) with respect to theta. '''
+
+        ## Unpack
         S0 = np.exp(theta[0])
         mu = theta[1:]
 
@@ -420,7 +492,10 @@ class HoodRegularizedModel(object):
 
     def fixed_rt_hessian(self,theta):
 
-        ## Unpack the S0-mu point of interest 
+        ''' Hessian of fixed_rt(theta) with respect to theta, used to approximate the
+        covariance of S0 and mu at the optimum. '''
+
+        ## Unpack the S0-mu point of interest
         S0 = np.exp(theta[0])
         mu = theta[1:]
 
@@ -478,9 +553,16 @@ class HoodRegularizedModel(object):
 
     def __call__(self,theta):
 
-        ''' Evaluate the full, heirachical posterior across all parameters. This is mainly to facilitate
-        visualization, posterior profiling, etc. as opposed to model fitting (which is more stable in stages
-        as above). '''
+        ''' Evaluate the full, hierarchical negative log posterior across all parameters. This is mainly
+        to facilitate visualization, posterior profiling, etc. as opposed to model fitting (which is more
+        stable in stages as above).
+
+        Args:
+            theta (numpy.ndarray): All parameters, [log(S0), mu[0], ..., mu[num_sias-1], r_t[0], ..., r_t[T]].
+
+        Returns:
+            float: The negative log posterior (up to a constant).
+        '''
 
         ## Unpack 
         S0 = np.exp(theta[0])
@@ -516,6 +598,17 @@ class HoodRegularizedModel(object):
 ######################################################################################################
 def get_age_pyramid(state,fname=os.path.join("_data","grid3_population_by_state.csv")):
 
+    ''' Read a state's population by age from the GRID3 file and return it as a yearly age distribution.
+
+    Args:
+        state (str): Lowercase state name, as in the "state" column of fname.
+        fname (str): Path to the GRID3 population CSV.
+
+    Returns:
+        tuple: (pyramid, population), where pyramid is a pandas.Series of the fraction of the
+        population at each single year of age and population is the state's total population (int).
+    '''
+
     ## Get the output from grid3
     df = pd.read_csv(fname,index_col=0)\
             .set_index(["state","age_bin"])
@@ -540,8 +633,25 @@ def get_age_pyramid(state,fname=os.path.join("_data","grid3_population_by_state.
 
 def prep_model_inputs(state,time_index,epi,cr,dists,mcv1_effic=0.825,mcv2_effic=0.95):
 
-    '''This functions prepares the dataframe that has all the key inputs (cases, births, etc.) on the
-    same time scale and in terms of the necessary inputs to the model (RI adjusted births, for example). '''
+    '''This function prepares the dataframe that has all the key inputs (cases, births, etc.) on the
+    same time scale and in terms of the necessary inputs to the model (RI adjusted births, for example).
+
+    Args:
+        state (str): Lowercase state name, used to look up the population.
+        time_index (pandas.DatetimeIndex): Semi-monthly time steps for the model.
+        epi (pandas.DataFrame): Daily state-level data indexed by time, with columns cases, rejected,
+            births, births_var, mcv1, mcv1_var, mcv2 and mcv2_var (see _data/README.md).
+        cr (pandas.DataFrame): Output of the coarse regression, indexed by year, with columns S0, S0_var,
+            rr and rr_var.
+        dists (pandas.DataFrame): Age-at-infection distributions by birth cohort. These are currently
+            multiplied by zero, so the survival correction is switched off, as in the manuscript.
+        mcv1_effic (float): Efficacy of the first measles vaccine dose.
+        mcv2_effic (float): Efficacy of the second dose.
+
+    Returns:
+        pandas.DataFrame: Model inputs from 2009 onward, including adj_births (births not immunized by
+        routine immunization), adj_cases_p, and the reporting rate prior (rr_p, rr_p_var).
+    '''
 
     ## Start by aggregating the epi data to the semi-monthly timescale.
     ## SMS: SemiMonthly-Start, i.e. first and 15th of every month.
@@ -629,6 +739,19 @@ def prep_model_inputs(state,time_index,epi,cr,dists,mcv1_effic=0.825,mcv2_effic=
 
 def prep_sia_effects(cal,time_index,md=False):
 
+    ''' Align an SIA calendar to the model's time steps.
+
+    Args:
+        cal (pandas.DataFrame): SIA calendar with start_date, end_date and doses columns, like
+            _data/imputed_sia_calendar_by_state.csv for one state.
+        time_index (pandas.DatetimeIndex): Model time steps.
+        md (bool): If True, also return the per-SIA metadata.
+
+    Returns:
+        pandas.DataFrame: Doses by time step (rows) and SIA (columns), placed at each campaign's midpoint.
+        If md is True, a tuple of this and the metadata DataFrame.
+    '''
+
     ## Get the SIA calendar to collect SIA effects, looping over campaigns
     ## and aligning to the time steps 
     cal = cal.loc[(cal["start_date"] >= time_index[0]) &\
@@ -661,8 +784,20 @@ def prep_sia_effects(cal,time_index,md=False):
 
 def fit_the_neighborhood_model(region,hood_df,hood_sias,initial_mu_guess=0.1):
 
-    '''This function fits the model at the neighborhood level, leveraging the class above and 
-    encapsulated methods therein. '''
+    '''This function fits the model at the neighborhood level, leveraging the class above and
+    encapsulated methods therein.
+
+    Args:
+        region (str): Region name, used only in printed output.
+        hood_df (pandas.DataFrame): Neighborhood inputs, as for NeighborhoodPosterior(df=...), plus the
+            columns initial_S0 and initial_S0_var.
+        hood_sias (pandas.DataFrame): Doses by time step and SIA for the neighborhood.
+        initial_mu_guess (float): Starting value for the SIA efficacies.
+
+    Returns:
+        NeighborhoodPosterior: The model with logS0 and mu set to their fitted values. Prints
+        whether the optimizer converged.
+    '''
 
     ## Create a model object.
     hoodP = NeighborhoodPosterior(
@@ -699,8 +834,23 @@ def fit_the_neighborhood_model(region,hood_df,hood_sias,initial_mu_guess=0.1):
 
 def fit_the_regularized_model(state,state_df,state_sias,hood_t,initial_mu_guess=0.5):
 
-    '''This function fits the model at the state level, leveraging the class above, i.e. the 
-    encapsulated methods therein, as well as the fitted neighborhood model output (hood_t). '''
+    '''This function fits the model at the state level, leveraging the class above, i.e. the
+    encapsulated methods therein, as well as the fitted neighborhood model output (hood_t).
+
+    Args:
+        state (str): State name, used only in printed output.
+        state_df (pandas.DataFrame): State inputs from prep_model_inputs(...).
+        state_sias (pandas.DataFrame): Doses by time step and SIA for the state.
+        hood_t (pandas.DataFrame): Neighborhood compartments (E_t, I_t, S_t), e.g. from
+            fit_the_neighborhood_model(...).compartment_df().
+        initial_mu_guess (float): Starting value for the SIA efficacies.
+
+    Returns:
+        tuple: (model, inf_seasonality, inf_seasonality_std, alpha, sig_eps), where model is the fitted
+        HoodRegularizedModel (with logS0, mu, r_hat and their variances set), inf_seasonality and
+        inf_seasonality_std are the seasonal transmission profile and its standard error, alpha is the
+        exponent on infectious individuals, and sig_eps is the residual standard deviation.
+    '''
 
     ## Then use that estimate of the compartments to
     ## inform seasonality in the state level model.

@@ -1,4 +1,4 @@
-""" PriorGenerator.py
+""" GeneratePriors.py
 
 This script calls SurvivalPrior.py as a subprocess for every state, stores the outputs for
 each states, and compiles them into a single serialized object for use in the fast time
